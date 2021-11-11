@@ -1,0 +1,9 @@
+FROM node:14-alpine
+
+ENV APPLICATION_DIRECTORY /srv/app
+RUN mkdir $APPLICATION_DIRECTORY
+WORKDIR $APPLICATION_DIRECTORY
+
+ENV NODE_ENV development
+
+CMD ["npm", "run", "start:server"]

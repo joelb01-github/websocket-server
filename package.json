@@ -1,0 +1,33 @@
+{
+  "name": "wallbox_nodejs_code_test",
+  "version": "1.0.0",
+  "description": "Wallbox Node.js Code Test",
+  "main": "index.js",
+  "scripts": {
+    "start:server": "nodemon ./server",
+    "start:charger": "ts-node ./charger",
+    "start:widget": "ts-node ./widget"
+  },
+  "engines": {
+    "node": ">=12.15"
+  },
+  "author": "Eneko Lakasta",
+  "license": "ISC",
+  "devDependencies": {
+    "@types/node": "^14.14.10",
+    "@types/ws": "^7.4.0",
+    "@types/yargs": "^15.0.11",
+    "nodemon": "^1.18.10",
+    "ts-node": "^9.1.0",
+    "typescript": "^4.1.2"
+  },
+  "dependencies": {
+    "chalk": "^4.1.0",
+    "clear": "^0.1.0",
+    "enquirer": "^2.3.6",
+    "lodash": "^4.17.11",
+    "rxjs": "^6.6.3",
+    "ws": "^6.2.1",
+    "yargs": "^16.1.1"
+  }
+}
