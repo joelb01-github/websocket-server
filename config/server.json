@@ -1,0 +1,27 @@
+{
+  "node_env": "dev",
+  "dev_env": "local",
+  "server": {
+    "host": "localhost",
+    "name": "local-server",
+    "ports": {
+      "chargers": 3100,
+      "widgets": 3200
+    }
+  },
+  "db_main": {
+    "username": "db_user",
+    "password": "db_password",
+    "database": "db_name",
+    "host": "localhost",
+    "dialect": "postgres",
+    "logging": false,
+    "benchmark": false,
+    "pool": {
+      "max": 4,
+      "idle": 10000,
+      "acquire": 5000,
+      "evict": 1000
+    }
+  }
+}

@@ -33,6 +33,7 @@ export class ChargerMock {
     );
 
     const soCPrompter = createSoCPrompter({ socsSubject: this.socsSubject });
+    
     soCPrompter.startPrompting();
   }
 }
