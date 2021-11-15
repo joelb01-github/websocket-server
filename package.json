@@ -11,9 +11,7 @@
     "db:migrate": "sequelize db:migrate",
     "db:seed": "sequelize db:seed:all",
     "cover": "nyc --report-dir ./coverage yarn run test",
-    "test": "node_modules/mocha/bin/_mocha -- -R spec test/index.js --exit --timeout 10000",
-    "test:unit": "node_modules/mocha/bin/_mocha -- -R spec test/unit/index.js --exit",
-    "test:integration": "node_modules/mocha/bin/_mocha -- -R spec test/integration/index.js --exit --timeout 20000"
+    "test:integration": "node_modules/mocha/bin/_mocha -- -R spec test/integration/index.js --exit --timeout 3000"
   },
   "engines": {
     "node": ">=12.15"

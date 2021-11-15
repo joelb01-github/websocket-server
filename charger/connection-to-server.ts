@@ -12,6 +12,7 @@ export class ConnectionToServer {
       this.ws = new WebSocket(this.url);
 
       this.ws.on('open', () => {
+        console.log('open', this.url);
         return resolve();
       });
 

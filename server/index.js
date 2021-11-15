@@ -11,11 +11,6 @@ const { ports } = appConfig.get('server');
 const servers = [];
 const websockets = {};
 
-// TODO: replace by DB
-const connections = {
-  c1234: 'wABCD',
-};
-
 const dbMain = Db(appConfig.get('db_main'));
 
 R.values(ports).forEach((port) => {
@@ -25,55 +20,61 @@ R.values(ports).forEach((port) => {
 
   const websocketServer = new ws.Server({ server });
 
-  websocketServer.on('connection', async (websocket, req) => {
-    console.log('Connection established');
+  hl('connection', websocketServer, ['websocket', 'req'])
+    .tap(() => console.log('Connection established'))
+    .map(extradtRequestInfo)
+    .flatMap(verifyConnection(port))
+    .tap(storingWebsocket)
+    .tap(() => console.log('websockets length', R.keys(websockets).length))
+    .each(({ websocket, id }) => {
+      hl('message', websocket)
+        // Performance measure, ensures only one data event is push downstream
+        // (or into the buffer) every ms milliseconds, other values are dropped.
+        .throttle(1000)
+        .map(parseIncomingMessage)
+        .filter(verifyMessageContent)
+        .tap((message) => console.log('received valid message: %s', message))
+        .map(createMessage)
+        .flatMap(fetchWidgetCounterpart(id))
+        .filter(verifyWidgetIsConnected)
+        .errors((err) => {
+          console.error('error', err);
+          websocket.terminate();
+        })
+        .each(sendMessage);
 
-    const id = await verifyConnection(websocket, req, port);
-
-    // storing websocket
-    websockets[id] = websocket;
-    console.log('websockets length', R.keys(websockets).length);
-
-    hl('message', websocket)
-      // Performance measure, ensures only one data event is push downstream
-      // (or into the buffer) every ms milliseconds, other values are dropped.
-      .throttle(1000)
-      .map(parseIncomingMessage)
-      .filter(verifyMessageContent)
-      .tap((message) => console.log('received valid message: %s', message))
-      .map(defineChargingStatus)
-      .map(createMessage)
-      .map(fetchWidgetCounterpart(id))
-      .filter(verifyWidgetIsConnected)
-      // error management; actions can be added here
-      .errors((err) => console.error('error', err))
-      .each(sendMessage);
-
-    hl('close', websocket)
-      .each(() => {
-        console.log('Connection stopped');
-        // removing websocket
-        R.dissoc(id, websockets);
-        console.log('websockets length', R.keys(websockets).length);
-      });
-  });
+      hl('close', websocket)
+        .each(() => {
+          console.log('Connection stopped');
+          // removing websocket
+          delete websockets[id];
+          console.log('websockets length', R.keys(websockets).length);
+        });
+    });
 
   hl('error', websocketServer)
     .each((err) => console.error('Error happened', err));
 });
 
+function extradtRequestInfo({ websocket, req }) {
+  const requester = req.url.split('/')[1];
+  const id = req.url.split('/')[2];
+  return ({ websocket, id, requester });
+}
+
 /**
  * Function to verify that the connection is legitimate.
  * Terminates websocket connection if verification fails
  */
-async function verifyConnection(websocket, req, port) {
-  const requester = req.url.split('/')[1];
-  const id = req.url.split('/')[2];
+function verifyConnection(port) {
+  return ({ websocket, id, requester }) => hl([{ websocket }])
+    .map(verifyRequestAddress(requester, port))
+    .map(verifyIdNotNull(id))
+    .flatMap(verifyDeviceIdIsRegistered(id, requester));
+}
 
-  verifyRequestAddress(websocket, requester, port);
-  await verifyDeviceIdIsRegistered(websocket, id, requester, port);
-
-  return id;
+function storingWebsocket({ websocket, id }) {
+  websockets[id] = websocket;
 }
 
 // there should be some verification here on message format
@@ -84,6 +85,19 @@ function parseIncomingMessage(message) {
 function verifyMessageContent(parsed) {
   return parsed?.event === 'StateOfCharge'
   && parsed?.data?.soc !== undefined;
+}
+
+function createMessage(parsed) {
+  const status = defineChargingStatus(parsed);
+
+  const message = JSON.stringify({
+    event: 'chargingStatus',
+    data: {
+      status,
+    },
+  });
+
+  return message;
 }
 
 // Different status could be taken from either db or config
@@ -97,23 +111,20 @@ function defineChargingStatus(parsed) {
   return 'charging';
 }
 
-function createMessage(status) {
-  return JSON.stringify({
-    event: 'chargingStatus',
-    data: {
-      status,
-    },
-  });
-}
-
-// done inside of message event to make sure the widget is connected
+// done inside of message event to make sure the widget is stored in websockets
 function fetchWidgetCounterpart(id) {
-  return (message) => {
-    console.log('fetching widget');
-    const widgetId = connections[id];
-    const widget = websockets[widgetId];
-    return { widget, message };
+  const dbQuery = {
+    where: {
+      chargerId: id,
+    },
   };
+
+  return (message) => hl(dbMain.Widget.findOne(dbQuery))
+    .filter((widgetDb) => !R.isNil(widgetDb))
+    .map((widgetDb) => websockets[widgetDb.id])
+    .filter((widget) => !R.isNil(widget))
+    .map((widget) => ({ widget, message }))
+    .tap(() => console.log('Counterpart fetched'));
 }
 
 // making sure the counterpart widget is connected
@@ -125,36 +136,47 @@ function sendMessage({ widget, message }) {
   return widget.send(message);
 }
 
-function verifyRequestAddress(websocket, requester, port) {
-  if (R.isNil(requester)
-  || R.isNil(ports[requester])
-  || ports[requester] !== port) {
-    console.error('Bad request - wrong address', requester, port);
-    websocket.terminate();
-  }
+function verifyRequestAddress(requester, port) {
+  return ({ websocket }) => {
+    if (R.isNil(requester)
+    || R.isNil(ports[requester])
+    || ports[requester] !== port) {
+      console.error('Bad request - wrong address', requester, port);
+      websocket.terminate();
+    }
+    return { websocket };
+  };
 }
 
-async function verifyDeviceIdIsRegistered(websocket, id, requester, port) {
-  let result;
+function verifyIdNotNull(id) {
+  return ({ websocket }) => {
+    if (R.isNil(id)) {
+      console.error('Bad request - device not known', id);
+      websocket.terminate();
+    }
+    return { websocket };
+  };
+}
 
-  if (R.isNil(id)) {
-    console.error('Bad request - device not known', id, port);
-    websocket.terminate();
-  }
+function verifyDeviceIdIsRegistered(id, requester) {
+  return ({ websocket }) => hl([{ websocket }])
+    .map(() => {
+      const Model = requester === 'chargers'
+        ? dbMain.Charger
+        : dbMain.Widget;
+      return { websocket, Model };
+    })
+    .flatMap(({ Model }) => hl(Model.findByPk(id)))
+    .errors((err) => {
+      console.error(`Sequelize Error: ${err}`);
+      websocket.terminate();
+    })
+    .map((result) => {
+      if (R.isNil(result)) {
+        console.error(`${requester} ${id} is not registered.`);
+        websocket.terminate();
+      }
 
-  const Model = requester === 'chargers'
-    ? dbMain.Charger
-    : dbMain.Widget;
-
-  try {
-    result = await Model.findByPk(id);
-  } catch (err) {
-    console.error(`Sequelize Error: ${err}`);
-    websocket.terminate();
-  }
-
-  if (R.isNil(result)) {
-    console.error(`${requester} ${id} is not registered.`);
-    websocket.terminate();
-  }
+      return { websocket, id };
+    });
 }

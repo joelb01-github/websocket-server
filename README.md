@@ -1,117 +1,87 @@
-# Node.js technical test
+# Wallbox project
 
-## Context
+This repo is the answer of Joel Barenco to task given by Wallbox for the recruitment process.
 
-Wallbox is thinking of diversifying its business, and for this, it is going to launch a new mobile recharge service for various events: music festivals and the like. We at Wallbox are very optimistic about the pandemic :D
+See `instructions.md` for the requirements.
 
-The charging process will be as follows:
+## Quick start
 
-A customer approaches the Wallbox booth, hands over his mobile phone and in return receives a device that will indicate the status of the charging process. This device has a led that changes color depending on the state of the charge:
+In order to set up the architecture locally, follow the below instructions:
 
-     - red: charging
-     - yellow: charge level at least 80%
-     - green: fully charged
-
-When the led turns green, the customer can return to the booth, pay for the service and exchange the device for their charged mobile phone.
-
-## Your mission (if you decide to accept it)
-
-Develop a server to which both chargers and devices will connect via websockets.
-
-During the charging process, the charger periodically sends the charge level to the server.
-
-The server processes these messages and sends a charging status to the device associated with that charger.
-
-Each charger has a unique device associated with it (for example, the charger _c1234_ is associated with the device _wABCD_)
-
-### Chargers
-
-Chargers connect to the server like this:
-
-```javascript
-const connection = new WebSocket('ws://localhost:3100/chargers/c1234');
+```bash
+cd docker/
+docker-compose up --build
 ```
 
-where _c1234_ is the charger id.
+Then, in 2 other seperate shell windows, run:
 
-The messages that the chargers send us indicating their charge level (_State of Charge_) are as follows:
-
-```javascript
-connection.send(
-	JSON.stringify({
-		event: 'StateOfCharge',
-		data: {
-			soc: 70,
-		},
-	})
-);
+```bash
+npm run start:charger
 ```
 
-### Devices
+and
 
-Devices connect to the server like this:
-
-```javascript
-const connection = new WebSocket('ws://localhost:3200/widgets/wABCD');
+```bash
+npm run start:widget
 ```
 
-where _wABCD_ is the device id.
+## Infrastructure
 
-The devices receive messages from the server indicating the charging status (`charging`,` charging80`, and `charged`):
+When considering the server, the following infrastructure based on AWS services could be used:
+- A VPC with both public (for the ELB/Fargate) and private (for the DB) subnets
+- AWS ECS Fargate to host the dockerized server in front of an ELB
+- AWS CloudPipeline + AWS CloudFormation + AWS CodeBuild to build a CI/CD pipeline to automatically deploy the server to the cloud when changes are pushed to GitHub
+- AWS CloudWatch or a third-party service like Grafana to monitor the server
+- AWS RDS to host the database if it is SQL (like we used in this example) - otherwise DynamoDB could be a good noSQL candidate. That should be a different stack with its own deployment pipeline. It could be used as an npm package by the server
+
+## Depedencies
+
+No dependencies.
+
+## Tests
+
+In order to make them work, you should set up the system as explain in `## Quick start`. Then, run in the root directory:
+
+```bash
+npm run test:i tegration
+```
+
+---
+
+## Notes
+
+### Websockets vs REST
+
+When I first read the instructions, I wasn't sure why websockets were needed vs a simple REST API server. This may be due to the fact that I hadn't dealt with websockets before. But searching why websockets were good for, I realised that while the charger was basically sending data to the server, it was then the server that was pushing data to the device. While a callback endpoint coupled with a server deployed on the device could do the trick, it seemed more evident at that point that a websocket was more suited for that particular scenario.
+
+### Decisions
+
+The main decision I took was to decide which library to use on the server to help with the mixture of event-based, async, and synchronous tasks. I decided to go with Highland because it provides exactly that e.g. a way to jungle between different types easily. It also provides a nice functional-programming interface.
+
+### Testing websockets
+
+I came accross an annoying bug when building the test setup. I added on the server side some async validation of the request before allowing messages coming in. This made the test suite block as messages would be sent immediately after the connection to the server was made, but before the async validation could be done - thus loosing the message in limbo :'-( Adding a simple sleep function helped resolved the issue. This could be improved with some kind of manual ping/pong to test if a connection was accepted.
+
+### Typo
+
+Inside of README.md / Devices, devices receive messages with the following format (it is `chargingStatus` instead of `StateOfCharge`):
 
 ```javascript
 {
-    event: "StateOfCharge",
+    event: "chargingStatus",
     data: {
         status: "charging",
     }
 }
 ```
 
-The possible state of charge are:
+## Improvements
 
-- `charging`
-- `charging80`: charge level at 80% or higher
-- `charged`: fully charged
-
-## Support tools
-
-To make your life easier, we have created some mocks of the charger (_charger_) and the device (_widget_). You should launch each one in a different terminal.
-
-### Charger mock
-
-```bash
-npm run start:charger
-```
-
-It connects to your server and allows you to send charge level messages.
-
-### Device mock
-
-```bash
-npm run start:widget
-```
-
-It connects to your server and displays the status it receives on the screen.
-
-## Aspects to consider:
-
-- It should take you about 4/5 hours to get it done. Your code should be simple, understandable, and conform to the statement. Do not do more than what is asked of you to do. We prefer you to deliver a functional server, to one with many design patterns, but that does not even start. Write down all the improvements that you would like to have added, and tell us about them in the interview.
-
-- (Node> = 12) && (JavaScript || TypeScript)
-
-- You may use any framework / library that you deem helpful in the development. The only requirement is that you use the _ws_ library (https://github.com/websockets/ws/) for the Websockets. The test could actually be done using just this library.
-
-- You don't need to use any database (SQL / NoSQL). The association between chargers and devices can be stored in memory, but make sure that the interface you use is similar to how you would use a database (especially make it asynchronous and try to minimize the number of requests). For this test, the _c1234_ charger will need to be associated with the _wABCD_ device.
-
-- We want you to include some E2E tests (charger -> server -> device), like: _When I receive a certain message from a charger, I should send this other message to the associated device_. You don't have to run a comprehensive test suite. We just want to see how you would do automatic testing with Websockets communications. Mocha or Jest, up to you.
-
-- Add instructions on how to run your code and launch the test suites. You may use Docker, although it is not necessary.
-
-- It would be very interesting if you added notes explaining the most important decisions you made.
-
-- [OPTIONAL] How would you deploy an application like this on AWS?
-
-- If you have any questions, ask away!
-
-- The purpose of this test is for us to be able to assess your technical level and serve as a basis for conversation during the interview. We know that it is not possible to perform miracles in such a short time.
+- add a real logger (Winston-based for ex)
+- add more verification steps to the incoming messages (see comments in server/index.js)
+- use OO patterns for the server logic as per charger and widget code
+- set up some API endpoints on the server to register / unregister chargers and widgets
+- move the different charging states inside of either the DB or the config file locally
+- create / seed the DB during integration testing at the beginning
+- add heartbeat mechanism to detect and close broken connections
+- many additional tests (in addition to unit/component ones); also there could be improved by using spies to make sure the expected actions happened on the server
